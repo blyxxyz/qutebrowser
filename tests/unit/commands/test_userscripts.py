@@ -27,6 +27,7 @@ import pytest
 from PyQt5.QtCore import QFileSystemWatcher
 
 from qutebrowser.commands import userscripts
+from qutebrowser.misc import fifo
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +43,7 @@ class TestQtFIFOReader:
     def reader(self, tmpdir, qapp):
         fifo_path = str(tmpdir / 'fifo')
         os.mkfifo(fifo_path)  # pylint: disable=no-member,useless-suppression
-        reader = userscripts._QtFIFOReader(fifo_path)
+        reader = fifo.QtFIFOReader(fifo_path)
         yield reader
         if reader._notifier.isEnabled():
             reader.cleanup()

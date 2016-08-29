@@ -51,7 +51,8 @@ from qutebrowser.browser.webkit import cookies, cache, downloads
 from qutebrowser.browser.webkit.network import (qutescheme, proxy,
                                                 networkmanager)
 from qutebrowser.mainwindow import mainwindow
-from qutebrowser.misc import readline, ipc, savemanager, sessions, crashsignal
+from qutebrowser.misc import (readline, ipc, savemanager, sessions,
+                              crashsignal, fifo)
 from qutebrowser.misc import utilcmds  # pylint: disable=unused-import
 from qutebrowser.utils import (log, version, message, utils, qtutils, urlutils,
                                objreg, usertypes, standarddir, error, debug)
@@ -150,6 +151,10 @@ def init(args, crash_handler):
     config_obj.style_changed.connect(style.get_stylesheet.cache_clear)
     qApp.focusChanged.connect(on_focus_changed)
     qApp.focusChanged.connect(message.on_focus_changed)
+
+    if os.name == 'posix':
+        log.init.debug("Setting up FIFO...")
+        fifo.init()
 
     QDesktopServices.setUrlHandler('http', open_desktopservices_url)
     QDesktopServices.setUrlHandler('https', open_desktopservices_url)
@@ -672,6 +677,8 @@ class Quitter:
             objreg.get('ipc-server').shutdown()
         except KeyError:
             pass
+        # Shut down FIFO
+        fifo.cleanup()
         # Save everything
         try:
             save_manager = objreg.get('save-manager')

@@ -23,58 +23,13 @@ import os
 import os.path
 import tempfile
 
-from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject, QSocketNotifier
+from PyQt5.QtCore import pyqtSignal, pyqtSlot, QObject
 
 from qutebrowser.utils import message, log, objreg, standarddir
 from qutebrowser.commands import runners
 from qutebrowser.config import config
-from qutebrowser.misc import guiprocess
+from qutebrowser.misc import guiprocess, fifo
 from qutebrowser.browser.webkit import downloads
-
-
-class _QtFIFOReader(QObject):
-
-    """A FIFO reader based on a QSocketNotifier.
-
-    Attributes:
-        _filepath: The path to the opened FIFO.
-        _fifo: The Python file object for the FIFO.
-        _notifier: The QSocketNotifier used.
-
-    Signals:
-        got_line: Emitted when a whole line arrived.
-    """
-
-    got_line = pyqtSignal(str)
-
-    def __init__(self, filepath, parent=None):
-        super().__init__(parent)
-        self._filepath = filepath
-        # We open as R/W so we never get EOF and have to reopen the pipe.
-        # See http://www.outflux.net/blog/archives/2008/03/09/using-select-on-a-fifo/
-        # We also use os.open and os.fdopen rather than built-in open so we
-        # can add O_NONBLOCK.
-        # pylint: disable=no-member,useless-suppression
-        fd = os.open(filepath, os.O_RDWR | os.O_NONBLOCK)
-        self._fifo = os.fdopen(fd, 'r')
-        self._notifier = QSocketNotifier(fd, QSocketNotifier.Read, self)
-        self._notifier.activated.connect(self.read_line)
-
-    @pyqtSlot()
-    def read_line(self):
-        """(Try to) read a line from the FIFO."""
-        log.procs.debug("QSocketNotifier triggered!")
-        self._notifier.setEnabled(False)
-        for line in self._fifo:
-            self.got_line.emit(line.rstrip('\r\n'))
-        self._notifier.setEnabled(True)
-
-    def cleanup(self):
-        """Clean up so the FIFO can be closed."""
-        self._notifier.setEnabled(False)
-        for line in self._fifo:
-            self.got_line.emit(line.rstrip('\r\n'))
-        self._fifo.close()
 
 
 class _BaseUserscriptRunner(QObject):
@@ -215,12 +170,12 @@ class _BaseUserscriptRunner(QObject):
 
 class _POSIXUserscriptRunner(_BaseUserscriptRunner):
 
-    """Userscript runner to be used on POSIX. Uses _QtFIFOReader.
+    """Userscript runner to be used on POSIX. Uses QtFIFOReader.
 
     Commands are executed immediately when they arrive in the FIFO.
 
     Attributes:
-        _reader: The _QtFIFOReader instance.
+        _reader: The QtFIFOReader instance.
     """
 
     def __init__(self, win_id, parent=None):
@@ -232,21 +187,13 @@ class _POSIXUserscriptRunner(_BaseUserscriptRunner):
         self._kwargs = kwargs
 
         try:
-            # tempfile.mktemp is deprecated and discouraged, but we use it here
-            # to create a FIFO since the only other alternative would be to
-            # create a directory and place the FIFO there, which sucks. Since
-            # os.mkfifo will raise an exception anyways when the path doesn't
-            # exist, it shouldn't be a big issue.
-            self._filepath = tempfile.mktemp(prefix='qutebrowser-userscript-',
-                                             dir=standarddir.runtime())
-            # pylint: disable=no-member,useless-suppression
-            os.mkfifo(self._filepath)
+            self._filepath = fifo.make_temp_fifo()
         except OSError as e:
             message.error(self._win_id,
                           "Error while creating FIFO: {}".format(e))
             return
 
-        self._reader = _QtFIFOReader(self._filepath)
+        self._reader = fifo.QtFIFOReader(self._filepath)
         self._reader.got_line.connect(self.got_cmd)
 
     @pyqtSlot()
