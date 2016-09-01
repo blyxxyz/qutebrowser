@@ -72,6 +72,11 @@ Feature: Scrolling
         And I run :scroll left
         Then the page should not be scrolled
 
+    # causes segfault with postEvent instead of sendEvent
+    Scenario: Scrolling down with count 10
+        When I run :scroll down with count 10
+        Then no crash should happen
+
     Scenario: Scrolling with page down
         When I run :scroll page-down
         Then the page should be scrolled vertically
@@ -116,6 +121,7 @@ Feature: Scrolling
         And I run :scroll left
         Then the page should not be scrolled
 
+    @qtwebengine_skip: Causes memory leak...
     Scenario: Scrolling down with a very big count
         When I run :scroll down with count 99999999999
         # Make sure it doesn't hang
@@ -181,6 +187,7 @@ Feature: Scrolling
         When I run :scroll-perc with count 50
         Then the page should be scrolled vertically
 
+    @qtwebengine_skip: Causes memory leak...
     Scenario: :scroll-perc with a very big value
         When I run :scroll-perc 99999999999
         Then no crash should happen
@@ -234,6 +241,7 @@ Feature: Scrolling
         And I run :scroll-page -1 0
         Then the page should not be scrolled
 
+    @qtwebengine_todo: at_bottom is not implemented yet
     Scenario: :scroll-page with --bottom-navigate
         When I run :scroll-perc 100
         And I run :scroll-page --bottom-navigate next 0 1
@@ -243,6 +251,7 @@ Feature: Scrolling
         When I run :scroll-page --top-navigate prev 0 -1
         Then data/hello3.txt should be loaded
 
+    @qtwebengine_skip: Causes memory leak...
     Scenario: :scroll-page with a very big value
         When I run :scroll-page 99999999999 99999999999
         Then the error "Numeric argument is too large for internal int representation." should be shown

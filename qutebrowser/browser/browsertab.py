@@ -60,7 +60,12 @@ class WebTabError(Exception):
     """Base class for various errors."""
 
 
-class TabData(QObject):
+class UnsupportedOperationError(WebTabError):
+
+    """Raised when an operation is not supported with the given backend."""
+
+
+class TabData:
 
     """A simple namespace with a fixed set of attributes.
 
@@ -70,37 +75,21 @@ class TabData(QObject):
         inspector: The QWebInspector used for this webview.
         viewing_source: Set if we're currently showing a source view.
         open_target: How the next clicked link should be opened.
-        hint_target: Override for open_target for hints.
+        override_target: Override for open_target for fake clicks (like hints).
     """
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self):
         self.keep_icon = False
         self.viewing_source = False
         self.inspector = None
         self.open_target = usertypes.ClickTarget.normal
-        self.hint_target = None
+        self.override_target = None
 
     def combined_target(self):
-        if self.hint_target is not None:
-            return self.hint_target
+        if self.override_target is not None:
+            return self.override_target
         else:
             return self.open_target
-
-    @pyqtSlot(usertypes.ClickTarget)
-    def _on_start_hinting(self, hint_target):
-        """Emitted before a hinting-click takes place.
-
-        Args:
-            hint_target: A ClickTarget member to set self.hint_target to.
-        """
-        log.webview.debug("Setting force target to {}".format(hint_target))
-        self.hint_target = hint_target
-
-    @pyqtSlot()
-    def _on_stop_hinting(self):
-        log.webview.debug("Finishing hinting.")
-        self.hint_target = None
 
 
 class AbstractPrinting:
@@ -431,11 +420,64 @@ class AbstractHistory:
         raise NotImplementedError
 
 
+class AbstractElements:
+
+    """Finding and handling of elements on the page."""
+
+    def __init__(self, tab):
+        self._widget = None
+        self._tab = tab
+
+    def find_css(self, selector, callback, *, only_visible=False):
+        """Find all HTML elements matching a given selector async.
+
+        Args:
+            callback: The callback to be called when the search finished.
+            selector: The CSS selector to search for.
+            only_visible: Only show elements which are visible on screen.
+        """
+        raise NotImplementedError
+
+    def find_id(self, elem_id, callback):
+        """Find the HTML element with the given ID async.
+
+        Args:
+            callback: The callback to be called when the search finished.
+            elem_id: The ID to search for.
+        """
+        raise NotImplementedError
+
+    def find_focused(self, callback):
+        """Find the focused element on the page async.
+
+        Args:
+            callback: The callback to be called when the search finished.
+                      Called with a WebEngineElement or None.
+        """
+        raise NotImplementedError
+
+    def find_at_pos(self, pos, callback):
+        """Find the element at the given position async.
+
+        This is also called "hit test" elsewhere.
+
+        Args:
+            pos: The QPoint to get the element for.
+            callback: The callback to be called when the search finished.
+                      Called with a WebEngineElement or None.
+        """
+        raise NotImplementedError
+
+
 class AbstractTab(QWidget):
 
     """A wrapper over the given widget to hide its API and expose another one.
 
     We use this to unify QWebView and QWebEngineView.
+
+    Class attributes:
+        WIDGET_CLASS: The class of the main widget recieving events.
+                      Needs to be overridden by subclasses.
 
     Attributes:
         history: The AbstractHistory for the current tab.
@@ -470,6 +512,8 @@ class AbstractTab(QWidget):
     contents_size_changed = pyqtSignal(QSizeF)
     add_history_item = pyqtSignal(QUrl, QUrl, str)  # url, requested url, title
 
+    WIDGET_CLASS = None
+
     def __init__(self, win_id, parent=None):
         self.win_id = win_id
         self.tab_id = next(tab_id_gen)
@@ -488,24 +532,21 @@ class AbstractTab(QWidget):
         # self.zoom = AbstractZoom(win_id=win_id)
         # self.search = AbstractSearch(parent=self)
         # self.printing = AbstractPrinting()
+        # self.elements = AbstractElements(self)
 
-        self.data = TabData(parent=self)
+        self.data = TabData()
         self._layout = miscwidgets.WrapperLayout(self)
         self._widget = None
         self._progress = 0
         self._has_ssl_errors = False
         self._load_status = usertypes.LoadStatus.none
-        self._mouse_event_filter = mouse.MouseEventFilter(self, parent=self)
+        self._mouse_event_filter = mouse.MouseEventFilter(
+            self, widget_class=self.WIDGET_CLASS, parent=self)
         self.backend = None
 
         # FIXME:qtwebengine  Should this be public api via self.hints?
         #                    Also, should we get it out of objreg?
         hintmanager = hints.HintManager(win_id, self.tab_id, parent=self)
-        hintmanager.mouse_event.connect(self._on_hint_mouse_event)
-        # pylint: disable=protected-access
-        hintmanager.start_hinting.connect(self.data._on_start_hinting)
-        hintmanager.stop_hinting.connect(self.data._on_stop_hinting)
-        # pylint: enable=protected-access
         objreg.register('hintmanager', hintmanager, scope='tab',
                         window=self.win_id, tab=self.tab_id)
 
@@ -519,6 +560,7 @@ class AbstractTab(QWidget):
         self.zoom._widget = widget
         self.search._widget = widget
         self.printing._widget = widget
+        self.elements._widget = widget
         self._install_event_filter()
 
     def _install_event_filter(self):
@@ -532,22 +574,30 @@ class AbstractTab(QWidget):
         self._load_status = val
         self.load_status_changed.emit(val.name)
 
-    @pyqtSlot('QMouseEvent')
-    def _on_hint_mouse_event(self, evt):
-        """Post a new mouse event from a hintmanager."""
-        # FIXME:qtwebengine Will this implementation work for QtWebEngine?
-        #                   We probably need to send the event to the
-        #                   focusProxy()?
-        log.modes.debug("Hint triggered, focusing {!r}".format(self))
-        self._widget.setFocus()
-        QApplication.postEvent(self._widget, evt)
+    def _event_target(self):
+        """Return the widget events should be sent to."""
+        raise NotImplementedError
+
+    def send_event(self, evt, *, postpone=False):
+        """Send the given event to the underlying widget.
+
+        Args:
+            postpone: Postpone the event to be handled later instead of
+                      immediately. Using this might cause crashes in Qt.
+        """
+        recipient = self._event_target()
+        if postpone:
+            QApplication.postEvent(recipient, evt)
+        else:
+            QApplication.sendEvent(recipient, evt)
 
     @pyqtSlot(QUrl)
     def _on_link_clicked(self, url):
-        log.webview.debug("link clicked: url {}, hint target {}, "
+        log.webview.debug("link clicked: url {}, override target {}, "
                           "open_target {}".format(
                               url.toDisplayString(),
-                              self.data.hint_target, self.data.open_target))
+                              self.data.override_target,
+                              self.data.open_target))
 
         if not url.isValid():
             msg = urlutils.get_errstring(url, "Invalid link clicked")
@@ -613,9 +663,7 @@ class AbstractTab(QWidget):
     @pyqtSlot()
     def _on_history_trigger(self):
         """Emit add_history_item when triggered by backend-specific signal."""
-        url = self.url()
-        requested_url = self.url(requested=True)
-        self.add_history_item.emit(url, requested_url, self.title())
+        raise NotImplementedError
 
     @pyqtSlot(int)
     def _on_load_progress(self, perc):
@@ -667,14 +715,6 @@ class AbstractTab(QWidget):
         """
         raise NotImplementedError
 
-    def run_js_blocking(self, code):
-        """Run javascript and block.
-
-        This returns the result to the caller. Its use should be avoided when
-        possible as it runs a local event loop for QtWebEngine.
-        """
-        raise NotImplementedError
-
     def shutdown(self):
         raise NotImplementedError
 
@@ -685,25 +725,6 @@ class AbstractTab(QWidget):
         raise NotImplementedError
 
     def set_html(self, html, base_url):
-        raise NotImplementedError
-
-    def find_all_elements(self, selector, callback, *, only_visible=False):
-        """Find all HTML elements matching a given selector async.
-
-        Args:
-            callback: The callback to be called when the search finished.
-            selector: The CSS selector to search for.
-            only_visible: Only show elements which are visible on screen.
-        """
-        raise NotImplementedError
-
-    def find_focus_element(self, callback):
-        """Find the focused element on the page async.
-
-        Args:
-            callback: The callback to be called when the search finished.
-                      Called with a WebEngineElement or None.
-        """
         raise NotImplementedError
 
     def __repr__(self):

@@ -58,7 +58,7 @@ def view(qtbot, config_stub, request):
     return v
 
 
-@pytest.yield_fixture(params=['webkit', 'webengine'])
+@pytest.fixture(params=['webkit', 'webengine'])
 def tab(request, default_config, qtbot, tab_registry, cookiejar_and_cache):
     if PYQT_VERSION < 0x050600:
         pytest.skip('Causes segfaults, see #1638')
@@ -99,6 +99,7 @@ class Tab(browsertab.AbstractTab):
         self.zoom = browsertab.AbstractZoom(win_id=self.win_id)
         self.search = browsertab.AbstractSearch(parent=self)
         self.printing = browsertab.AbstractPrinting()
+        self.elements = browsertab.AbstractElements(self)
 
     def _install_event_filter(self):
         pass
@@ -121,11 +122,3 @@ def test_tab(qtbot, view, config_stub, tab_registry, mode_manager):
 
     tab_w.show()
     qtbot.waitForWindowShown(tab_w)
-
-
-class TestJs:
-
-    @pytest.mark.parametrize('inp, expected', [('1+1', 2),
-                                               ('undefined', None)])
-    def test_blocking(self, tab, inp, expected):
-        assert tab.run_js_blocking(inp) == expected

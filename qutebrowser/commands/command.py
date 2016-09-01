@@ -244,6 +244,12 @@ class Command:
 
         if not self.ignore_args:
             for param in signature.parameters.values():
+                # https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind
+                # "Python has no explicit syntax for defining positional-only
+                # parameters, but many built-in and extension module functions
+                # (especially those that accept only one or two parameters)
+                # accept them."
+                assert param.kind != inspect.Parameter.POSITIONAL_ONLY
                 if param.name == 'self':
                     continue
                 if self._inspect_special_param(param):
@@ -340,12 +346,17 @@ class Command:
         Args:
             param: The inspect.Parameter to look at.
         """
+        arginfo = self.get_arg_info(param)
         if param.annotation is not inspect.Parameter.empty:
             return param.annotation
-        elif param.default is None or param.default is inspect.Parameter.empty:
+        elif param.default not in [None, inspect.Parameter.empty]:
+            return type(param.default)
+        elif arginfo.count or arginfo.win_id or param.kind in [
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD]:
             return None
         else:
-            return type(param.default)
+            return str
 
     def _get_self_arg(self, win_id, param, args):
         """Get the self argument for a function call.
@@ -416,7 +427,7 @@ class Command:
                 self.name))
         elif issubclass(typ, typing.Union):
             # this is... slightly evil, I know
-            types = list(typ.__union_params__)
+            types = list(typ.__union_params__)  # pylint: disable=no-member
             if param.default is not inspect.Parameter.empty:
                 types.append(type(param.default))
             choices = self.get_arg_info(param).choices
@@ -425,10 +436,10 @@ class Command:
         elif typ is str:
             choices = self.get_arg_info(param).choices
             value = argparser.type_conv(param, typ, value, str_choices=choices)
-        elif typ is None:
-            pass
         elif typ is bool:  # no type conversion for flags
             assert isinstance(value, bool)
+        elif typ is None:
+            pass
         else:
             value = argparser.type_conv(param, typ, value)
 

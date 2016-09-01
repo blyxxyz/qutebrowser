@@ -4,6 +4,18 @@
 
 = Commands
 
+In qutebrowser, all keybindings are mapped to commands.
+
+Some commands are hidden, which means they don't show up in the command
+completion when pressing `:`, as they're typically not useful to run by hand.
+
+In the commandline, there are also some variables you can use:
+
+- `{url}` expands to the URL of the current page
+- `{url:pretty}` expands to the URL in decoded format
+- `{clipboard}` expands to the clipboard contents
+- `{primary}` expands to the primary selection contents
+
 == Normal commands
 .Quick reference
 [options="header",width="75%",cols="25%,75%"]
@@ -32,6 +44,7 @@
 |<<hint,hint>>|Start hinting.
 |<<history-clear,history-clear>>|Clear all browsing history.
 |<<home,home>>|Open main startpage in current tab.
+|<<insert-text,insert-text>>|Insert text at cursor position.
 |<<inspector,inspector>>|Toggle the web inspector.
 |<<jseval,jseval>>|Evaluate a JavaScript string.
 |<<later,later>>|Execute a command after some time.
@@ -68,6 +81,7 @@
 |<<unbind,unbind>>|Unbind a keychain.
 |<<undo,undo>>|Re-open a closed tab (optionally skipping [count] closed tabs).
 |<<view-source,view-source>>|Show the source of the current page.
+|<<window-only,window-only>>|Close all windows except for the current one.
 |<<wq,wq>>|Save open pages and quit.
 |<<yank,yank>>|Yank something to the clipboard or primary selection.
 |<<zoom,zoom>>|Set the zoom level for the current tab.
@@ -402,6 +416,18 @@ Note this only clears the global history (e.g. `~/.local/share/qutebrowser/histo
 === home
 Open main startpage in current tab.
 
+[[insert-text]]
+=== insert-text
+Syntax: +:insert-text 'text'+
+
+Insert text at cursor position.
+
+==== positional arguments
+* +'text'+: The text to insert.
+
+==== note
+* This command does not split arguments after the last argument and handles quotes literally.
+
 [[inspector]]
 === inspector
 Toggle the web inspector.
@@ -479,6 +505,10 @@ This tries to automatically click on typical _Previous Page_ or _Next Page_ link
 * +*-t*+, +*--tab*+: Open in a new tab.
 * +*-b*+, +*--bg*+: Open in a background tab.
 * +*-w*+, +*--window*+: Open in a new window.
+
+==== count
+For `increment` and `decrement`, the number to change the URL by. For `up`, the number of levels to go up in the URL.
+
 
 [[open]]
 === open
@@ -844,6 +874,10 @@ Re-open a closed tab (optionally skipping [count] closed tabs).
 === view-source
 Show the source of the current page.
 
+[[window-only]]
+=== window-only
+Close all windows except for the current one.
+
 [[wq]]
 === wq
 Syntax: +:wq ['name']+
@@ -910,6 +944,7 @@ How many steps to zoom out.
 |==============
 |Command|Description
 |<<clear-keychain,clear-keychain>>|Clear the currently entered key chain.
+|<<click-element,click-element>>|Click the element matching the given filter.
 |<<command-accept,command-accept>>|Execute the command currently in the commandline.
 |<<command-history-next,command-history-next>>|Go forward in the commandline history.
 |<<command-history-prev,command-history-prev>>|Go back in the commandline history.
@@ -940,7 +975,6 @@ How many steps to zoom out.
 |<<move-to-start-of-next-block,move-to-start-of-next-block>>|Move the cursor or selection to the start of next block.
 |<<move-to-start-of-prev-block,move-to-start-of-prev-block>>|Move the cursor or selection to the start of previous block.
 |<<open-editor,open-editor>>|Open an external editor with the currently selected form field.
-|<<paste-primary,paste-primary>>|Paste the primary selection at cursor position.
 |<<prompt-accept,prompt-accept>>|Accept the current prompt.
 |<<prompt-no,prompt-no>>|Answer no to a yes/no prompt.
 |<<prompt-open-download,prompt-open-download>>|Immediately open a download.
@@ -974,6 +1008,22 @@ How many steps to zoom out.
 === clear-keychain
 Clear the currently entered key chain.
 
+[[click-element]]
+=== click-element
+Syntax: +:click-element [*--target* 'target'] 'filter' 'value'+
+
+Click the element matching the given filter.
+
+The given filter needs to result in exactly one element, otherwise, an error is shown.
+
+==== positional arguments
+* +'filter'+: How to filter the elements. id: Get an element based on its ID.
+
+* +'value'+: The value to filter for.
+
+==== optional arguments
+* +*-t*+, +*--target*+: How to open the clicked element (normal/tab/tab-bg/window).
+
 [[command-accept]]
 === command-accept
 Execute the command currently in the commandline.
@@ -997,7 +1047,7 @@ Syntax: +:completion-item-focus 'which'+
 Shift the focus of the completion menu to another item.
 
 ==== positional arguments
-* +'which'+: 'next' or 'prev'
+* +'which'+: 'next', 'prev', 'next-category', or 'prev-category'.
 
 [[drop-selection]]
 === drop-selection
@@ -1168,10 +1218,6 @@ How many blocks to move.
 Open an external editor with the currently selected form field.
 
 The editor which should be launched can be configured via the `general -> editor` config option.
-
-[[paste-primary]]
-=== paste-primary
-Paste the primary selection at cursor position.
 
 [[prompt-accept]]
 === prompt-accept
@@ -1403,6 +1449,8 @@ These commands are mainly intended for debugging. They are hidden if qutebrowser
 |<<debug-crash,debug-crash>>|Crash for debugging purposes.
 |<<debug-dump-page,debug-dump-page>>|Dump the current page's content to a file.
 |<<debug-log-capacity,debug-log-capacity>>|Change the number of log lines to be stored in RAM.
+|<<debug-log-filter,debug-log-filter>>|Change the log filter for console logging.
+|<<debug-log-level,debug-log-level>>|Change the log level for console logging.
 |<<debug-pyeval,debug-pyeval>>|Evaluate a python string and display the results as a web page.
 |<<debug-set-fake-clipboard,debug-set-fake-clipboard>>|Put data into the fake clipboard and enable logging, used for tests.
 |<<debug-trace,debug-trace>>|Trace executed code via hunter.
@@ -1453,6 +1501,24 @@ Change the number of log lines to be stored in RAM.
 
 ==== positional arguments
 * +'capacity'+: Number of lines for the log.
+
+[[debug-log-filter]]
+=== debug-log-filter
+Syntax: +:debug-log-filter 'filters'+
+
+Change the log filter for console logging.
+
+==== positional arguments
+* +'filters'+: A comma separated list of logger names.
+
+[[debug-log-level]]
+=== debug-log-level
+Syntax: +:debug-log-level 'level'+
+
+Change the log level for console logging.
+
+==== positional arguments
+* +'level'+: The log level to set.
 
 [[debug-pyeval]]
 === debug-pyeval

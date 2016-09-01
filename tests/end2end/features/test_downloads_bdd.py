@@ -21,8 +21,13 @@ import os
 import sys
 import shlex
 
+import pytest
 import pytest_bdd as bdd
 bdd.scenarios('downloads.feature')
+
+
+pytestmark = pytest.mark.qtwebengine_todo("Downloads not implemented yet",
+                                          run=False)
 
 
 @bdd.given("I set up a temporary download dir")
